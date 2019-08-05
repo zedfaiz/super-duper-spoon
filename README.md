@@ -64,7 +64,7 @@ To get a local copy up and running follow these simple steps.
 
 Aizzat - [@twitter_handle](https://twitter.com/twitter_handle) - email
 
-Project Link: [https://github.com/zedfaiz/super-duper-spoon](https://github.com/github_username/repo)
+Project Link: [https://github.com/zedfaiz/super-duper-spoon](https://github.com/zedfaiz/super-duper-spoon)
 
 
 
