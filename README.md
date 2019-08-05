@@ -50,7 +50,7 @@
 
 <!-- Visions -->
 ## Visions
-Reference point during my sailing journey to sharing and providing notes and projects code related big data analytics to everyone.  
+My sailing routes around big data analytic world by sharing and providing notes and projects code related big data analytics to everyone.  
 
 <!-- Project-codes -->
 ## Project codes
