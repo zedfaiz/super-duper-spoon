@@ -46,7 +46,7 @@
 * [Project codes](#Project-codes)
   * [electricity](#electricity)
   * [oil and gas](#oil-gas)
-* [Contact](#contact)
+
 
 <!-- Visions -->
 ## Visions
