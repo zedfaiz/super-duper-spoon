@@ -44,8 +44,9 @@
 
 * [Visions](#Visions)
 * [Project codes](#Project-codes)
-  * [electricity](#electricity)
-  * [oil and gas](#oil-gas)
+  * [power_sector](#power_sector)
+  * [investment_trend](#investment_trend)
+  * [automobiles](#automobiles)
 
 
 <!-- Visions -->
@@ -62,7 +63,7 @@ To get a local copy up and running follow these simple steps.
 <!-- CONTACT -->
 ## Contact
 
-Aizzat - [@twitter_handle](https://twitter.com/twitter_handle) - email
+Aizzat
 
 Project Link: [https://github.com/zedfaiz/super-duper-spoon](https://github.com/zedfaiz/super-duper-spoon)
 
