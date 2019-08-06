@@ -52,13 +52,6 @@
 ## Visions
 My sailing routes around big data analytic world by sharing and providing notes and projects code those who lose track. 
 
-<!-- Project-codes -->
-## Project codes
-
-To get a local copy up and running follow these simple steps.
-
-### oil and gas
-
 <!-- CONTACT -->
 ## Contact
 
