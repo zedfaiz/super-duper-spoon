@@ -46,6 +46,7 @@
   * [power_sector](#power_sector)
   * [investment_trend](#investment_trend)
   * [automobiles](#automobiles)
+  * [hadoop](#hadoop)
 
 
 <!-- Visions -->
