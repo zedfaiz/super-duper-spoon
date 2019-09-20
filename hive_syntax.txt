@@ -1,0 +1,8 @@
+load data command:
+
+load data local inpath 
+
+
+Serde to parse json data(key,value pairs)
+-serializer and deserilzer. In hive, when we create table then serializer is called. 
+basically use for parsing the data and by default.

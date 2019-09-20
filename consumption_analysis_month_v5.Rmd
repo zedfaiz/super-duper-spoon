@@ -1,0 +1,983 @@
+---
+  title: "Analysis For BCRM - TEXT ANALYSIS SCRIPT R NOTEBOOK"
+output: html_notebook
+author: "LOO WEI WERN"
+---
+  
+  The initialization portions are as below, please change to the appropriate working directory or create under your own D: drive the same exact directory structure.
+
+```{r}
+setwd("C:\\MPS\\projects\\TNB\\billing\\code\\wei_wern_working_file")
+rm(list = ls())
+```
+
+The list of packages used below, working with R 3.5.3 for Windows. Notice the heavy use of Hadley Wickham's tidyverse data manipulation packages, in which piping (similar to the dot notation in Python) is used extensively to transform and perform operations on the data in sequence.
+
+```{r, message=FALSE}
+require(tidyverse)
+require(readxl)
+require(stringr)
+require(stringi)
+require(tidytext)
+require(xlsx)
+require(ggplot2)
+require(plotly)
+require(openxlsx)
+require(lubridate)
+require(janitor)
+```
+
+#creating objects
+#it can be the whole dataset, result of a calculation, a part of data set with specific traits
+```{r}
+file_date_upper <- '2019-06-30'
+file_date_lower <- '2019-06-01'
+
+file_list_string <- "June2019"
+```
+
+# DATA INGESTION PORTION
+## Ingest Service Request & Complaint Data
+
+This portion of the code lists out all the files contained under the folder "BCRM_Data/Service Request and Complaints Data", whereby the files are named in a specific manner, to facilitate sequential data ingestion as new files come in. The files are to be differentiated by the date of extract
+
+```{r}
+complaints_file_list <- list.files("BCRM Data/Service Request and Complaints Data") %>% as.data.frame() %>% 
+filter(str_detect(., "Complaint")) %>% filter(str_detect(., file_list_string)) %>% droplevels() %>% 
+transmute(file_names = as.character(.))
+
+servicereq_file_list <- list.files("BCRM Data/Service Request and Complaints Data") %>% as.data.frame() %>% 
+filter(str_detect(., "Service_Request")) %>% filter(str_detect(., file_list_string)) %>% droplevels()  %>% 
+transmute(file_names = as.character(.))
+```
+
+### Identified Filtering Categories
+
+This portion lists out the categories and subcategories to be filtered by, for both Complaints' files and Service Requests' files, along with pre-establishing the schema for both sets of data
+
+```{r}
+complaint_category_filter <- c('Bill Received','No RMR bill received','Meter Crossing','Meter Faulty','Product Change',
+'Estimated Bill','Wrong Reading')
+
+complaint_sub_category_filter <- c('Bill Not Received','Late Bill Received','Non RMR *','Meter Crossing','Meter Blank',
+'Meter Broken','Meter Burnt','Meter Disc Stop','Meter Lost/Stolen','Wrong Tariff','Faulty Meter',
+'High Consumption (AE53)','System Estimation (AE93)', 'Not assigned')
+
+column_names_complaint <- c("S_No","Zone","State","State_Description","Business_Area_Key","Channel",
+"Complaint_ID","BP_ID","BP_Name","Contact_Person_ID","Contact_Person_Name",
+"Contact_Person_Mobile_Number", "CA_Number","Unit","Category","SubCategory","Creation_Date",
+"Created_Time","Creation_By","Last_Changed_By",
+"Last_Changed_Date","SN_Number","SO_Number","BPEM_Case",
+"Feedback_Status","Notes","Unit2","Category2","SubCategory2",
+"Root_Cause_Analysis", "Corrective_Action")
+
+service_category_filter <- c(
+'Bill Adjustment (KKB/Caj Pelbagai)','Bill Charges','Check Meter Reading','Bill Format','LPC Meter Accuracy Test',
+'OPC Meter Accuracy Test','OPC Meter Change Request','Bilik Gerakan SM','Customer Request for Read',
+'MRU-OPC-Smart Meter','Request to Test Meter')
+
+service_subcategory_filter <- c(
+'KKB Adjustment','Multiplying Factor','PRO-Rate Charges Calculation','Power Factor (PF)',
+'Load Factor','Power Factor Surcharge','Rate of Tariff','Tariff','Bill Too High','Bill Too Low',
+'Billing Adjustment (KKB/Caj Pelbagai)','Faulty Meter','High load usage','Power factor penalty charge',
+'High Bill Normal','Low Bill Normal','Change Electronic Meter','Change Mechanical Meter- Ageing',
+'Smart Meter','High / Low Bill - First 2 Month','High / Low Bill - Normal Bill 3 Month & Above',
+'Estimated Bill','Wrong Reading')
+
+column_names_service <- c("S_No","Zone","State","State_Description","Business_Area_Key","Channel",
+"Service_Request_ID","BP_ID","BP_Name","Contact_Person_ID","Contact_Person_Name","Contact_Person_Mobile_Number",
+"CA_Number","Unit","Category","SubCategory","Creation_Date","Created_Time","Creation_By","Last_Changed_By",
+"Last_Changed_Date","SN_Number","SO_Number","BPEM_Case","Feedback_Status","Notes")
+```
+
+### Looping Data Ingestion
+
+The below scripts runs through the list of files established earlier, and then brings them in sequentially. May take some time to run, if number of files are substantial.
+
+```{r, message = FALSE}
+for (n in 1:nrow(complaints_file_list)){
+
+# This establishes the full path of the file
+full_file_path <- paste("BCRM Data/Service Request and Complaints Data/", complaints_file_list$file_names[n], sep = "" )
+
+# The below prepares the information of the name of the data frame, to which the extracted data is to be assigned to
+data_date <- strsplit(complaints_file_list$file_names[n], "-")[[1]][2] %>% 
+gsub("Extract.xlsx","",.) %>% trimws(.)
+data_name <- paste("data_complaints_",file_list_string,"_", data_date, sep = "")
+data_name_filtered <- paste("data_complaints_",file_list_string,"_filtered_", data_date, sep = "")
+
+# The code below extracts the excel file, and then removes columns which contain no information i.e. all rows are NA
+print(full_file_path)
+data_extract <- read_excel(full_file_path, sheet = 1, col_names = TRUE, skip = 16)
+data_extract <- data_extract[, colSums(is.na(data_extract)) != nrow(data_extract)]
+
+# Assigns the column names
+colnames(data_extract) <- column_names_complaint
+
+# Creates a filtered version of the data, ensuring that all data is in May 2019, filtered by predefined Category and Subcategory
+data_extract_filtered <- data_extract %>% filter(Creation_Date <= file_date_upper) %>%
+filter(Creation_Date >= file_date_lower) %>% 
+filter(Category %in% complaint_category_filter) %>%
+filter(SubCategory %in% complaint_sub_category_filter)
+
+# Assigns the extracted data into the corresponding variables, based on the names established earlier
+assign(data_name, data_extract)
+assign(data_name_filtered, data_extract_filtered)
+}
+```
+
+```{r, message=FALSE}
+for (n in 1:nrow(servicereq_file_list)){
+
+# This establishes the full path of the file
+full_file_path <- paste("BCRM Data/Service Request and Complaints Data/", servicereq_file_list$file_names[n], sep = "" )
+
+# The below prepares the information of the name of the data frame, to which the extracted data is to be assigned to
+data_date <- strsplit(servicereq_file_list$file_names[n], "-")[[1]][2] %>% 
+gsub("Extract.xlsx","",.) %>% trimws(.)
+data_name <- paste("data_servicereq_",file_list_string,"_", data_date, sep = "")
+data_name_filtered <- paste("data_servicereq_",file_list_string,"_filtered_", data_date, sep = "")
+
+# The code below extracts the excel file, and then removes columns which contain no information i.e. all rows are NA
+data_extract <- read_excel(full_file_path, sheet = 1, col_names = TRUE, skip = 16)
+data_extract <- data_extract[, colSums(is.na(data_extract)) != nrow(data_extract)]
+
+# Assigns the column names
+colnames(data_extract) <- column_names_service
+
+# Creates a filtered version of the data, ensuring that all data is in May 2019, filtered by predefined Category and Subcategory
+data_extract_filtered <- data_extract %>% filter(Creation_Date <= file_date_upper) %>%
+filter(Creation_Date >= file_date_lower) %>% 
+filter(Category %in% service_category_filter) %>%
+filter(SubCategory %in% service_subcategory_filter)
+
+# Assigns the extracted data into the corresponding variables, based on the names established earlier
+assign(data_name, data_extract)
+assign(data_name_filtered, data_extract_filtered)
+}
+```
+
+```{r}
+rm(n, data_name, data_name_filtered, data_extract, data_extract_filtered)
+```
+
+### Extracting Numbers For Timeline Purposes 
+
+The script below iterates across different versions of the file by date, and then creates a view of the movement of the numbers based on 'Feedback Status' accross the different file versions
+
+#### Complaints
+
+```{r}
+# The code below lists out variables in the R Global Environment, in which the names of the variables matches the below conditions, and then establishes the data frame 
+list_df <- ls() %>% as.data.frame() %>% 
+filter(str_detect(., paste("data_complaints_",file_list_string,"_filtered",sep = ""))) %>% 
+filter(!str_detect(., "bcrmInspection")) %>% 
+droplevels() %>% transmute(df = as.character(.))
+
+# The code below does the merging across the different files, with grouping by Feedback Status across different files
+for (n in 1:nrow(list_df)){
+file_date <- strsplit(list_df$df[n], "_filtered_")[[1]][2] %>% dmy()
+base_df <- get(list_df$df[n]) %>% 
+#filter(SubCategory == "Not assigned") %>% #Optional filter, if requested as part of the code
+group_by(Feedback_Status) %>% 
+summarize(count = n()) %>% 
+mutate(filedate = file_date,
+complaint_feedback = Feedback_Status) %>% 
+select(complaint_feedback, filedate, count)
+
+# Creating a long wide of the version, using rbind
+if(n == 1){
+merged_df <- base_df
+}else{
+merged_df <- rbind(merged_df, base_df)
+}
+}
+# Converting the long date to wide data, split by the file date
+merged_df %>% arrange(filedate) %>% 
+filter(filedate > "2019-06-01") %>% # If need to filter out specific dates
+spread(., filedate, count) %>% 
+filter(complaint_feedback %in% c("Resolved","Verified")) %>% # If needed to filter by the Feedback Status
+adorn_totals() %>% as_tibble() # Adding totals to the end of the table
+```
+
+#### Service Request
+
+```{r, message=FALSE, warning=FALSE}
+# The code below lists out variables in the R Global Environment, in which the names of the variables matches the below conditions, and then establishes the data frame 
+list_df <- ls() %>% as.data.frame() %>% 
+filter(str_detect(., paste("data_servicereq_",file_list_string,"_filtered",sep = ""))) %>% 
+filter(!str_detect(., "bcrmInspection")) %>% 
+droplevels() %>% transmute(df = as.character(.))
+
+# The code below does the merging across the different files, with grouping by Feedback Status across different files
+for (n in 1:nrow(list_df)){
+file_date <- strsplit(list_df$df[n], "_filtered_")[[1]][2] %>% dmy()
+base_df <- get(list_df$df[n]) %>% group_by(Feedback_Status) %>% 
+summarize(count = n()) %>% 
+mutate(filedate = file_date,
+servicereq_feedback = Feedback_Status) %>% 
+select(servicereq_feedback, filedate, count)
+
+# Creating a long wide of the version, using rbind
+if(n == 1){
+merged_df <- base_df
+}else{
+merged_df <- rbind(merged_df, base_df)
+}
+}
+
+# Converting the long date to wide data, split by the file date
+merged_df %>% arrange(filedate) %>% 
+filter(filedate > "2019-06-01") %>% # If need to filter out specific dates
+spread(., filedate, count) %>% arrange(servicereq_feedback) %>% 
+filter(str_detect(servicereq_feedback, "Completed")) %>% # If needed to filter by the Feedback Status, here using str_detect
+adorn_totals() %>% as_tibble() # Adding totals to the end of the table
+```
+
+## Extracting Files If Needed
+
+The code below is to support further extraction of SN Remarks, in which the data requested by Madam Marlina/Ho (or anyone else for data request), is around four (4) pieces of information - Service Request/Complaint ID, CA Number (Contract Account Number), SN Number and SO Number. The code below does not use the filtered version, in which my objective is to extract information for all related cases
+
+```{r}
+# data_complaints_may2019_14Jun2019 %>% 
+#   select(Complaint_ID, CA_Number, SN_Number, SO_Number) %>% 
+#   write.xlsx(., "Complaint_14June2019_For_NEW_SNREMARKS.xlsx")
+```
+
+```{r}
+# data_servicereq_may2019_14Jun2019 %>% 
+#   select(Service_Request_ID, CA_Number, SN_Number, SO_Number) %>% 
+#   write.xlsx(., "Service_Request_14June2019_For_NEW_SNREMARKS.xlsx")
+```
+
+## Extract Billing Info
+
+This part of the code is needed to produce the billing information the time may need, however, given the current focus of the analysis, these parts are commented out. The data will be provided anyways
+
+```{r,message=FALSE}
+# path_billing <- "BCRM Data/Billing Data from Nabihah/Cons CA of SR and Complaint.csv"
+# billing_data_all_ca_original <- read_csv(path_billing, col_names = TRUE)
+# 
+# path_billing_add_2 <- "BCRM Data/Billing Data from Nabihah/CA for Data 7 Jun 2019.xlsx"
+# billing_data_all_ca_additional_2 <- read_excel(path_billing_add_2, sheet = 1, col_names = TRUE)
+```
+
+### Ho's Extract of Additional Billing Information
+
+```{r, message=FALSE, warning=FALSE}
+#list.files("BCRM Data/Data From BCRM Ho") %>% as.data.frame()
+# 
+# bcrm_billing_data_file <- "BCRM Data/Data From BCRM Ho/Billing - SPOT - Billing Period Duration - Personnel - v2.xlsx"
+# data_bcrm_billing_more_info <- read_excel(bcrm_billing_data_file, 1, col_names = TRUE)
+# 
+# path_billing_add <- "BCRM Data/Data From BCRM Ho/CA_CHECK_LASTBILL_NO_MAY2019_08062019.xlsx"
+# billing_data_all_ca_additional <- read_excel(path_billing_add, 2, col_names = TRUE)
+# 
+# colnames(billing_data_all_ca_additional) <- colnames(billing_data_all_ca_original)
+```
+
+The below script handles the non-standard information retrieve via Mr Ho's extract of the information, for billing.
+
+```{r, message=FALSE}
+#Handling commas and negative signs in the numbers which are not standard
+# billing_data_all_ca_additional <-
+# billing_data_all_ca_additional %>% 
+#   mutate(BILL_DATE = lubridate::parse_date_time(BILL_DATE, "dmy"),
+#          OUTSTANDING_AMOUNT = if_else(str_detect(OUTSTANDING_AMOUNT, "\\-|\\,"),
+#                                       -as.numeric(gsub("-|,","",OUTSTANDING_AMOUNT)),as.numeric(OUTSTANDING_AMOUNT)),
+#          CURRENT_CHARGES = if_else(str_detect(CURRENT_CHARGES, "\\-|\\,"),
+#                                       -as.numeric(gsub("-|,","",CURRENT_CHARGES)),as.numeric(CURRENT_CHARGES)),
+#          ROUNDING_AMOUNT = if_else(str_detect(ROUNDING_AMOUNT, "\\-|\\,"),
+#                                       -as.numeric(gsub("-|,","",ROUNDING_AMOUNT)),as.numeric(ROUNDING_AMOUNT)),
+#          TOTAL_BILL = if_else(str_detect(TOTAL_BILL, "\\-|\\,"),
+#                                       -as.numeric(gsub("-|,","",TOTAL_BILL)),as.numeric(TOTAL_BILL))
+#          ) %>% 
+#   arrange(CA)
+```
+
+### Merging the Billing Information from Nabihah and Ho
+
+The scripts below established first the joining of Ho's and Nabihah's billing data, and then joins with Ho's additional information i.e. Portion, Billing Duration, MRU
+
+```{r}
+# billing_data_all_ca <-
+# billing_data_all_ca_original %>%
+#   mutate(BILL_DATE = lubridate::parse_date_time(BILL_DATE, "Ymd"),
+#          `KWH TOTAL` = as.numeric(`KWH TOTAL`)) %>% 
+#   rbind(., billing_data_all_ca_additional
+#         ) %>% 
+#   rbind(., billing_data_all_ca_additional_2 %>%   
+#           mutate(BILL_DATE = lubridate::parse_date_time(BILL_DATE, "Ymd"),
+#          `KWH TOTAL` = as.numeric(`KWH TOTAL`)))
+```
+
+```{r}
+# rm(billing_data_all_ca_original, billing_data_all_ca_additional, billing_data_all_ca_additional_2)
+```
+
+```{r}
+# data_bcrm_billing_joined <- 
+# data_bcrm_billing_more_info %>% 
+#   select(`Contract Account`, Portion, `Bill date`, `Bill type`,
+#          `Billing period start date`, `Billing period end date`,
+#          `Bill duration`,`Prorate factor`,`MRU`,`Description`) %>% 
+#   mutate(
+#     `Contract Account` = as.character(`Contract Account`),
+#     BILLING_PERIOD = format(`Billing period end date`, "%Y/%m")) %>%  
+#   unique() %>%
+#   right_join(., billing_data_all_ca %>% unique(), 
+#              by = c("Contract Account"="CA", 
+#                     "BILLING_PERIOD",
+#                     "Bill date"="BILL_DATE")) #%>% 
+#   #filter(!is.na(Portion))
+```
+
+```{r}
+# billing_period_list <- c("2019/01","2019/02","2019/03","2019/04","2019/05")
+# 
+# data_bcrm_billing_joined %>% 
+#   filter(BILLING_PERIOD %in% billing_period_list) %>%
+#   arrange(`Contract Account`,`Billing period end date`) # %>% 
+#   #write_delim(., "JOINED_BILLING_SPOTDATA_MAY2019_FOUNDATION_V3.csv", "|", na = "")
+```
+
+#### Missing Data Check, Using the most recent files
+
+The script below is supposed to check the data availability of billing, for the different CAs
+
+```{r, message=FALSE, warning=FALSE}
+# data_servicereq_may2019_filtered_12Jun2019 %>% 
+#   select(CA_Number) %>% 
+#   unique() %>% 
+#   transmute(CA_to_analze = as.numeric(CA_Number),
+#             source = "SR") %>% 
+#   rbind(., data_complaints_may2019_filtered_12Jun2019 %>% 
+#           select(`CA_Number`) %>% 
+#           unique() %>% transmute(CA_to_analze = as.numeric(CA_Number),
+#                                  source = "Comp")) %>% 
+#   unique() %>% 
+#   left_join(., billing_data_all_ca %>% select(CA) %>% unique() %>% 
+#                mutate(CA = as.numeric(CA), flag_billing_data = "Billing Data Available"), 
+#              by = c("CA_to_analze" = "CA")) %>% 
+#   left_join(., data_bcrm_billing_more_info %>% select(`Contract Account`) %>% unique() %>% 
+#               mutate(flag_analytics_data = "Analytics Data Available"),
+#             by = c("CA_to_analze"="Contract Account")
+#             ) %>% 
+#   filter(is.na(flag_billing_data)|is.na(flag_analytics_data)) #%>% 
+#   #write.xlsx(., "Data Extract Missing Information - 12 Jun 2019.xlsx")
+```
+
+## SN Remark Data
+
+The coding below extracts the SN remarks across different versions, depending on what needs to be used. The subsequent analysis is done on the 14 JUn 2019 Extract (here labeled as v3). Here, the names of the files are to be established manually.
+
+EXTRA CARE - the files coming in for this is not exactly standard. Manual checking of the original file may be needed, to make sure that the column names are labelled with underscores, especially Service_Request_ID/Complaint_ID and SN_Remark. If not, easier to change the source file, than the rest of the code.
+
+```{r, message = FALSE}
+# sn_remark_apr2019 <- 'BCRM Data/SN Remark Data/April_Service_Request_SN Remark - 30May2019.xlsx'
+# sn_remark_may2019 <- 'BCRM Data/SN Remark Data/May_Service_Request_SN Remark - 30May2019.xlsx'
+# 
+# data_sn_remark_apr2019_servicereq <- read_excel(sn_remark_apr2019, sheet = 1, col_names = TRUE)
+# data_sn_remark_apr2019_servicereq <- data_sn_remark_apr2019_servicereq[, colSums(is.na(data_sn_remark_apr2019_servicereq)) != 
+#                                                    nrow(data_sn_remark_apr2019_servicereq)] 
+# data_sn_remark_may2019_servicereq <- read_excel(sn_remark_may2019, sheet = 1, col_names = TRUE)
+# data_sn_remark_may2019_servicereq <- data_sn_remark_may2019_servicereq[, colSums(is.na(data_sn_remark_may2019_servicereq)) != 
+#                                                    nrow(data_sn_remark_may2019_servicereq)]
+# 
+# data_sn_remark_may2019_complaint_v2 <- 'BCRM Data/SN Remark Data/Complaint with SN Remark - 8Jun2019.xlsx'
+# data_sn_remark_may2019_servicereq_v2 <- 'BCRM Data/SN Remark Data/Service Request with Remark resaved - 8Jun2019.xlsx'
+# 
+# data_sn_remark_may2019_complaint_v2 <- read_excel(data_sn_remark_may2019_complaint_v2, sheet = 1, col_names = TRUE) %>% 
+#   select(Complaint_ID, SN_Remark)
+# data_sn_remark_may2019_servicereq_v2 <- read.xlsx(data_sn_remark_may2019_servicereq_v2, sheet = 1, colNames = TRUE)  %>% 
+#   select(Service_Request_ID, SN_Remark)
+
+data_sn_remark_complaint_v3 <- 'BCRM Data/SN Remark Data/Complaint_23June2019_For_NEW_SNREMARKS - 23Jun2019.xlsx'
+data_sn_remark_servicereq_v3 <- 'BCRM Data/SN Remark Data/Service_Request_30June2019_For_NEW_SNREMARKS - 30Jun2019.xlsx'
+
+data_sn_remark_complaint_v3 <- read_excel(data_sn_remark_complaint_v3, sheet = 1, col_names = TRUE) %>% 
+  select(Complaint_ID, SN_Remark)
+data_sn_remark_servicereq_v3 <- read.xlsx(data_sn_remark_servicereq_v3, sheet = 1, colNames = TRUE) %>% 
+  select(Service_Request_ID, SN_Remark)
+
+```
+
+```{r}
+data_servicereq_June2019_23Jun2019 %>% select(Service_Request_ID)
+```
+
+
+### 4 Jun 2019 - BCRM Inspection
+
+The coding below extracts the list of Complaints and Service Request IDs in which another workstream has already identified the root cause as the result of incorrect reading. The commented version is the earlier file, the uncommented one is as of 14 June 2019, in which the code is slightly more complex.
+
+```{r}
+# bcrm_inspection_file <- 'BCRM Data/master_Cancel_bill with Complaint ID and SR ID for Pn.Naza.XLSX'
+# 
+# data_bcrm_inspection_complaints <- read_excel(bcrm_inspection_file, sheet = 1, col_names = TRUE) %>% 
+#   select(`Complaint ID Matched`, `Contract Account`,`Created on`, `Bill Cancel Date`, 
+#          `Meter Reading Unit`, `Meter reader ID`, `Employee ID`)
+# data_bcrm_inspection_servicereq <- read_excel(bcrm_inspection_file, sheet = 2, col_names = TRUE) %>% 
+#   select(`SR ID Matched`, `Contract Account`,`Created on`, `Bill Cancel Date`, 
+#          `Meter Reading Unit`, `Meter reader ID`, `Employee ID`)
+
+# List the file name, and (if needed) the excel sheets
+bcrm_inspection_file <- 'BCRM Data/ProcessError_Tree V0_14Jun2019.xlsx'
+#excel_sheets(bcrm_inspection_file) 
+
+# Extracting from a specific sheet, and selecting relevant columns
+data_bcrm_inspection_complaints <- read_excel(bcrm_inspection_file, sheet = "CancelBill_Matched_Complaintid", col_names = TRUE) %>%
+  select(`Complaint ID Matched`, `Contract Account`,`Created on`, `Bill Cancel Date`,
+         `Meter Reading Unit`, `Meter reader ID`, `Employee ID`)
+
+# Extracting from a specific sheet, and selecting relevant columns
+data_bcrm_inspection_servicereq <- read_excel(bcrm_inspection_file, sheet = "CancelBill_Matched_SRid", col_names = TRUE) %>%
+  select(`Service Request ID Matched`, `Contract Account`,`Created on`, `Bill Cancel Date`,
+         `Meter Reading Unit`, `Meter reader ID`, `Employee ID`) %>% 
+  mutate(`SR ID Matched` = `Service Request ID Matched`) %>% #Adapting the column name to fit the rest of the code
+  select(-`Service Request ID Matched`) #Remove the original variable, since it was already replaced
+```
+
+#### Joining With Service Req and BCRM inspection data
+
+The coding scripts below joins the SN Remark data and BCRM inspection data with all the filtered versions of the complaints and service request data.
+
+##### BCRM inspection joining
+
+###### Service Req - BCRM Inspection
+
+```{r}
+# The code below lists out the specific data frames for which the join is to be done on
+list_df <- ls() %>% as.data.frame() %>% 
+  filter(str_detect(., paste("data_servicereq_",file_list_string,"_filtered",sep = ""))) %>% 
+  filter(!str_detect(., "bcrmInspection")) %>% 
+  droplevels() %>% transmute(df = as.character(.))
+
+for (n in 1:nrow(list_df)){
+  # Creating the new variable name
+  nfile <- paste(list_df$df[n], "_bcrmInspection", sep = "")
+  
+  # Join logic, assuming standardized column naming conventions
+  data_merge <- get(list_df$df[n]) %>% 
+    left_join(., data_bcrm_inspection_servicereq %>% 
+                mutate(`SR ID Matched` = as.character(`SR ID Matched`), 
+                       bcrm_inspection = 1) %>% 
+                select(`SR ID Matched`, bcrm_inspection), 
+              by = c("Service_Request_ID" = "SR ID Matched"))
+  
+  # Assigning variable to join
+  assign(nfile, data_merge)
+}
+rm(n, list_df, data_merge)
+```
+
+###### Complaints - BCRM Inspection
+
+```{r}
+# The code below lists out the specific data frames for which the join is to be done on
+list_df <- ls() %>% as.data.frame() %>% 
+  filter(str_detect(., paste("data_complaints_",file_list_string,"_filtered",sep = ""))) %>% 
+  filter(!str_detect(., "bcrmInspection")) %>% 
+  droplevels() %>% transmute(df = as.character(.))
+
+for (n in 1:nrow(list_df)){
+  # Creating the new variable name
+  nfile <- paste(list_df$df[n], "_bcrmInspection", sep = "")
+  
+  # Join logic, assuming standardized column naming conventions
+  data_merge <- get(list_df$df[n]) %>% 
+    left_join(., data_bcrm_inspection_complaints %>% mutate(`Complaint ID Matched` = as.character(`Complaint ID Matched`),
+                                                            bcrm_inspection = 1) %>% 
+                select(`Complaint ID Matched`,bcrm_inspection), 
+              by = c("Complaint_ID" = "Complaint ID Matched"))
+  
+  # Assigning variable to join
+  assign(nfile, data_merge)
+}
+rm(n, list_df, data_merge)
+```
+
+##### SN Remark Joining
+
+Here need manual intervention to change the source of the SN remarks, as commented in the code
+
+###### Service Req - BCRM Inspection - SN Remark
+
+```{r}
+# The code below lists out the specific data frames for which the join is to be done on
+list_df <- ls() %>% as.data.frame() %>% 
+  filter(str_detect(., paste("data_servicereq_",file_list_string,"_filtered",sep = ""))) %>% 
+  filter(str_detect(., "bcrmInspection")) %>% 
+  filter(!str_detect(., "SNRemarks")) %>% 
+  droplevels() %>% transmute(df = as.character(.))
+
+for(n in 1:nrow(list_df)){
+  # Creating the new variable name
+  nfile <- paste(list_df$df[n], "_SNRemarks", sep = "")
+  
+  # Complex code below, watch out for the column names
+  # The code does the following - joins with the SN remark information (here to v3, change accordingly),
+  # converts the information to uppercase,
+  # establishs the regex to remove the INTERNAL NOTE text in the SN Remark
+  # Removes it from the SN remark
+  # and then filters out and makes into NA any content with SN Remarks still containing internal notes
+  data_merge <- get(list_df$df[n]) %>% 
+    left_join(., data_sn_remark_servicereq_v3,
+              by = c("Service_Request_ID")) %>% 
+    mutate(notes_clean = gsub("#",'', toupper(Notes)), 
+           sn_upper = toupper(`SN_Remark`)) %>% 
+    rowwise() %>% 
+    mutate(
+      regex = paste(".*",str_sub(gsub("[^[:alnum:][:space:]]","", notes_clean), -3, -1), sep = ""),
+      clean_sn_remark = gsub(regex, "", sn_upper)) %>% 
+    mutate(
+      clean_sn_remark = ifelse(str_detect (clean_sn_remark, "INTERNAL"), NA, clean_sn_remark)) %>% 
+    mutate(
+      clean_sn_remark = ifelse(nchar(trimws(clean_sn_remark)) != 0, clean_sn_remark, NA)
+    ) %>% 
+    select(-regex)
+  
+  assign(nfile, data_merge)
+}
+rm(n, list_df, data_merge)
+```
+
+###### Complaints - BCRM Inspection - SN Remark
+
+```{r}
+# The code below lists out the specific data frames for which the join is to be done on
+list_df <- ls() %>% as.data.frame() %>% 
+  filter(str_detect(., "data_complaints_June2019_filtered")) %>%
+  filter(str_detect(., "bcrmInspection")) %>% 
+  filter(!str_detect(., "SNRemarks")) %>% 
+  droplevels() %>% transmute(df = as.character(.))
+
+for(n in 1:nrow(list_df)){
+  # Creating the new variable name  
+  nfile <- paste(list_df$df[n], "_SNRemarks", sep = "")
+  
+  # Complex code below, watch out for the column names
+  # The code does the following - joins with the SN remark information (here to v3, change accordingly),
+  # converts the information to uppercase,
+  # establishs the regex to remove the INTERNAL NOTE text in the SN Remark
+  # Removes it from the SN remark
+  # and then filters out and makes into NA any content with SN Remarks still containing internal notes
+  data_merge <- get(list_df$df[n]) %>% 
+    left_join(., data_sn_remark_complaint_v3,
+              by = c("Complaint_ID")) %>% 
+    mutate(notes_clean = gsub("#",'', toupper(Notes)), 
+           sn_upper = toupper(`SN_Remark`)) %>% 
+    rowwise() %>% 
+    mutate(
+      regex = paste(".*",str_sub(gsub("[^[:alnum:][:space:]]","", notes_clean), -3, -1), sep = ""),
+      clean_sn_remark = gsub(regex, "", sn_upper)) %>% 
+    mutate(
+      clean_sn_remark = ifelse(str_detect (clean_sn_remark, "INTERNAL"), NA, clean_sn_remark)) %>% 
+    mutate(
+      clean_sn_remark = ifelse(nchar(trimws(clean_sn_remark)) != 0, clean_sn_remark, NA)
+    ) %>% 
+    select(-regex)
+  
+  assign(nfile, data_merge)
+}
+rm(n, list_df, data_merge)
+```
+
+
+```{r}
+data_servicereq_June2019_filtered_23Jun2019_bcrmInspection_SNRemarks %>% filter(!is.na(clean_sn_remark))
+```
+
+# Keyword Based Classification
+
+The below portion is the analysis of the keywords. In simple terms it performs string matching 
+
+## Establishing Key Words
+
+The key words below differ between the different sources
+
+### Root Cause Analysis Keywords
+
+The keywords below are well-established for Complaints (under Feedback Status == "Verified"), so it can be a direct categorization if needed.
+
+```{r}
+meter_rca_keywords <- c("QUALITY OF THE METER", "VANDALISME", "AGEING METER, QUALITY OF THE METER", "OVERLOAD / BURNT CABLE", "DAMAGED INTERNAL WIRING", "FAULTY METER", "METER HAD NO DISPLAY","BLURRY DISPLAY METER / FAULTY METER","METER GLARE","METER NO DISPLAY", "WRONG READING DUE TO BLURRY DISPLAY","FAULTY DISPLAY BUTTON","METER BROKEN")
+crossing_rca_keywords <- c("CROSSED METER CONNECTION","CROSS METER INSTALLATION")
+customer_rca_keywords <- c("HIGH CONSUMPTION","HIGHER CONSUMPTION","SHUTDOWN / BREAKDOWN")
+incorrect_read_rca_keywords <- c("LAST MONTH READING HIGHER THAN CURRENT MONTH","WRONG READING BY METER READER","OVER/UNDER READ","OVER-READING BY METER READER","NEW METER READER")
+estimate_bill_rca_keywords <- c("NOT UPLOAD IN PDA")
+no_bill_no_reading_rca_keywords <- c("METER READER NOT GOING TO SITE","UNDELIVERED BILL TO CUSTOMER","NO READING","CUSTOMER BILL NOT GIVEN BY STN VIA EMAIL/HAND/POST","NO READING")
+system_data_issues_rca_keywords <- c("EMAIL BOUNCE/OMS FAIL","BILL SENT TO DIFFERENT PREMISE","INCOMPLETE CUSTOMER INFO FILLED BY CONTRACTOR","PREMIS CHANGE ADDRESS BY LOCAL AUTHORITY","WRONG STATION TAGGING","WRONG EMAIL ADDRESS","PREMISE NOT FOUND","PROBLEM ON GENARATE BILL/SMS BOUNCE")
+unclassified_rca_keywords <- c("AGEING METER BOARD","LINE ABC/PVC/BARE WIRE EXPOSED/DAMAGE","VANDALISM (DAMAGE MAILBOX/NO MAILBOX)","N/A","INSTALLATION NOT COMPLY TO ESAH","ILLEGAL CONNECTION WITH ACCOUNT")
+long_billing_rca_keywords <- c("BILL ABOVE 31DAYS")
+```
+
+### SN Remark Keywords
+
+The keywords below are based on inferencing on the SN Remarks, with the categories established as below. Notice that it is basically an OR logic, using the pipe ("|") symbol, along with word boundaries ("\\b") where needed.
+
+
+
+```{r}
+# WEI WERN COMMENT 1 JULY 2019
+# should be no issue, can play around with the word boundary, since \\b only finds a match if there is a leading or trailing spaces
+# e.g. bil tinggi.bacaan salah. - this case it will not be detected due to the lack of either leading or trailing whitespace
+# e.g. bil tinggi. bacaan salah - this case the option \\bbacaan salah\\b will detect it
+# e.g. bil tinggi.bacaan salah - this case the option bacaan salah\\b will detect it
+
+customer_consumption_keywords <- "\\bMETER PEMBILAN OK\\b|\\bTIADA MASALAH PEMBILAN\\b|\\bDEPAT MENERIMA\\b|\\bKIRAN TEPAT\\b|\\bTEPAT\\b|\\bBETUL\\b|\\bMETER BETUL\\b|\\bSEMATAN BACCAN METER\\b|\\bTIADA KEROSAKAN\\b|\\bPENERANGAN\\b|\\bBERSETUJU\\b|\\bTUKAR ALAMAT\\b|\\bKAMPUNG\\b|\\bTAMAN\\b|\\bSTICKER KOYAK\\b|\\bMASALAH PENGGUNAAN\\b|\\bBACAAN ADALAH TEPAT\\b|\\bBACAAN ADALAH BENAR\\b|\\bBACAAN ADALH BENAR\\b|\\bBACAA N ADALAH BENAR\\b|\\bBACAAN ADALAH BETUL\\b|\\bPEMBACA METER BETUL\\b|\\bBACAAN TERATUR\\b|\\bBETUL DAN TEPAT\\b|\\bADALAH TEPAT\\b|\\bBACAAN TEPAT\\b|\\bACAAN BETUL\\b|\\bBACAAN METER BETUL\\b|\\bBAC AAN ADALAH BETUL\\b|\\bADALAH BETUL\\b|\\bREADING TEPAT\\b|\\bBA CAAN TERATUR\\b|\\bBENAR DAN TEPAT\\b|\\bBCN ADALAH BETU\\b|\\bADALAH BENAR\\b|\\bBACAAN YG BETUL\\b|\\bBACAAN BIL BULANAN BETUL\\b|\\bDIDAPATI BETUL\\b|\\bBACAAN YANG BENAR\\b|\\bBACAAN NORMAL\\b|\\b4 BUAH RUMAH GUNA SATU METER\\b|\\bTIADA MA SALAH PADA BACAAN\\b|\\bBACAAN DALAM KEADAAN TERATUR\\b|\\bTIADA MASALAH DALAM BACAAN\\b|\\bADALAH BE TUL DAN TEPAT\\b|\\bTAMBAHAN 1 AIR COND\\b|\\bBACAAN TIADA MASALAH\\b|\\bDAPATI BACA AN OK\\b|\\bTIADA MASALAH PADA BA CAAN METER\\b|\\bTIADA MASALAH PADA BACAAN METER\\b|\\bRDG OK\\b|\\bTIADA MASAALAH BACAAN\\b|\\bTIADA MASALAH PADA BACAAN ME TER\\b|\\bTIADA MASALAH PADA BACAAN\\b|\\bTIADA MASALAH PAD A BACAAN\\b|\\bPASANG COWAY\\b|\\bPENGGUNAAN ELEKTRI K TINGGI\\b|\\bADALAH BETU\\b|\\bSEMAKAN BACAAN ADALAH BE TUL\\b|\\bTIADA MASALA H DGN BACAAN\\b|\\bBACAAN A DALAH BETUL\\b|\\bBACAAN AFALAH BETUL DAN TERATUR\\b|\\bBILLING TERATUR\\b|\\bTIADA MASALAH BACAAN\\b|\\bTIADA MASALAH DALAM BAC\\b|\\bBACAAN YG BENAR\\b|\\bBACAAN METER ADALA BETUL\\b|\\bTIADA KESALAHAN BACAAN\\b|\\bBACAAN OLEH PEMBACA JAN GKA BETUL\\b|\\bBACAAN YANG SEBENAR DAN TEPAT\\b|\\bBACAAN AD ALAH BETUL\\b|\\bBACAAN OK\\b|\\bBACAAN ADA LAH BETU\\b|\\bPENGGUNAAN 22AMP3ECON\\b|\\bBACAAN DI METER BETUL\\b|\\bBACAAN YG DIAMBIL PEMBACA METER BETUL\\b|\\bDAPATI BACCAN BETUL\\b|\\bBACAAN DIPERMIS ADA BETUL\\b|\\bBACAAN YG DIBUAT BETUL\\b|\\bBACAAN ADALAH TERATUR\\b|\\bRDG BETUL\\b|\\bGUNAKAN PERKAKAS ELEKTRIK IAITU OVEN\\b|\\bGUNA PENGHAWA DINGIN 2HP PADA SIANG HARI\\b|\\bADA 4 A-CON\\b|\\b\\b|\\b31 HARI\\b|\\b31HARI\\b|\\bCHECK METER NORMAL\\b|\\bBILANGAN HARI >31HARI YANG MENYEBABKAN BIL TINGGI\\b|\\bKWH ADALAH BETUL\\b|\\bBACAAN ADALAH BETUL DAN TEPAT\\b|\\bBETUL TIADA MASALAH \\b|\\bTIADA KESALAHAN PADA BACAAN\\b|\\bBERSETUJU DENGAN PENJELASAN\\b|\\bTIADA PEMBETULAN BIL DI BUAT\\b|\\bSUDAH DISELARASKAN\\b|\\bOKRALAT\\b|\\bAIKRALAT\\b|\\bKEADAAN BAIK\\b|\\bJANGKA BAIK\\b|\\bBAIK\\b|\\bMETER OK\\b|\\bGOOD CONDITION\\b|\\bNORMALRALAT\\b|\\bTIDAK ROSAK\\b|\\bJANGKA OK\\b|\\bMTR OK\\b|\\bDISAHKAN TIADA MASAALAH\\b|\\bDALAM RALAT YANG DIBENARKAN\\b|\\bTIADA KEJANGGALAN METER\\b|\\bRALAT % ERROR TIDAK MELEBIHI JULAT\\b|\\bBAIKERROR\\b|\\bKEJITUAN\\b|\\bMETER DIUJI BAIK\\b|\\bCHECK METER NORMAL"
+
+#TERATUR
+
+meter_quality_keywords <- "\\bMETER AGEINGT\\b|\\bMETER SHORTING\\b|\\bTUKAR MTR\\b|\\bMETER RALAT\\b|\\bMETER MEKANIKAL\\b|\\bNO PAPARAN\\b|\\bMETER USANG\\b|\\bTIDAK MENYALA\\b|\\bBEKALAN MASIH ADA\\b|\\bMETER TERHENTI\\b|\\bCAJ MINIMA\\b|\\bMETER SAMAR\\b|\\bMETER BLANK\\b|\\bMETER BROKEN\\b|\\bMETER PICAH\\b|\\bGANTI METER\\b|\\bTIDAK BERGERAK\\b|\\bMETER HILANG\\b|\\bMETER PREMISE\\b|\\bSYAK\\b|\\bMETER ROSAK\\b|\\bMETER ROSK\\b|\\bMETER KOTOR\\b|\\bMTR USANG\\b|\\bMETER KABUR\\b|\\bJANGKA USANG\\b|\\bOLD METER\\b|\\bCHANGE METER\\b|\\bMETER BERGERAK LAJU\\b|\\bJANGKA PENGGUNA LAJU\\b|\\bTIDAK MENEPATI\\b|\\bMETER SILAU\\b|\\bDIDAPATI ROSAK\\b|\\bROSK\\b|\\bAGED METER\\b|\\bTUKAR METER BARU\\b|\\bACCURACY METER OUT\\b|\\bMETER MELEBIHI 10 TAHUN\\b|\\bMTR ROSAK\\b|\\bMETER LAMA\\b|\\bMETER SLOW\\b|\\bMETER LEBIH 10 TAHUN\\b|\\bMETER LOMPAT\\b|\\bJANGKA KABUR DAN USANG\\b|\\bKEJANGGALAN METER AMAT TINGGI\\b|\\bPIRING JANGKA TAK STABIL\\b|\\bRALAT METER TIDAK MENGIKUT\\b|\\bSUDAH TUKAR JANGKA BARU\\b|\\bERROR TINGGI\\b|\\bMETER LAJU\\b|\\bMETER BLANK/BURNT\\b|\\bREADING STOP\\b|\\bROSAK-BLANK\\b|\\bGERAK LAJU\\b|\\bJANGKA LAJU\\b|\\bJANGKA BARU\\b|\\bUSANG\\b|\\bAGED\\b|\\bTERHENTI\\b|\\bMETER PECAH\\b|\\bMETER TIADA PAPARAN\\b|\\bMETER BERHENTI\\b|\\bERROR 32.98%\\b|\\bTIADA PAPARAN\\b|\\bRDG STOP\\b|\\bMETER TERBAKAR\\b|\\bMETER DAN PREMIS TERBAKAR\\b|\\bDISPLAY ROSAK\\b|\\bJANGKA ROSAK\\b|\\bBLANK\\b|\\bMETER PERLAHAN\\b|\\bKEMBUNG\\b|\\bMETER YG TERBAKAR\\b|\\bPENGGUNA TETAP TIDAK BERPUAS HATI\\b|\\bDAIL\\b|\\bBACAAN ERROR\\b|\\bPAPARAN METER TERHALANG\\b|\\bMETER PUDAR\\b|\\bTIDAK BERFUNGSI\\b|\\bDISAMBAR PETIR\\b|\\bCHOYKWHMETER ROSAK\\b|\\bSEMAK METER ROSAK\\b|\\bMETER ROSAK X\\b|\\bMETER ROSAKRUMAH TIADA\\b|\\bMETER ROSAK MINTAHUBUNGI\\b|\\bMETER ROSAK STOPCUST\\b|\\bLAB TEAMMETER ROSAKPERLU\\b|\\bMETER ROSAKSEMAKN DAPATI\\b|\\bPERUKARAN METER ROSAKTIADA\\b|\\bMETER ROSAKTERHENTI \\b|\\bMETER ROSAK TQ\\b|\\bMETER ROSAK PERLU\\b|\\bAMIRUDDINMETER ROSAK\\b|\\bMETER ROSAKBUAT\\b|\\bMETER ROSAKSEMAKN\\b|\\bMETER ROSAK PENGGUNAAN\\b|\\bBETUL RMETER ROSAKM\\b|\\bAI LEEMETER ROSAKMOHON\\b|\\bDIRUMAHTEMUJANJI ESOKMETER ROSAKTUKAR\\b|\\bSALAHATAU METER ROSAK\\b|\\bDISYAKI METER ROSAKRUMAH\\b|\\bJULIANA METER ROSAK\\b|\\bTEAMMETER ROSAKPERLU\\b|\\bKWHMETER ROSAKTRANSFER\\b|\\bFAKIRRADZILR KWHMETER ROSAKAVERAGE\\b|\\bKUATIR METER ROSAK\\b|\\bMETER ROSAK \\b|\\bMETER ROSAKPENGGUNA BERITAHU\\b|\\bENMUNIADY METER ROSAK\\b|\\bMETER ROSAK SERTA\\b|\\bAPPOINTMENT METER ROSAK\\b|\\bDISYAKI METER ROSAKADA\\b|\\bMETER ROSAKTRANSFER KE\\b|\\bRISAU METER ROSAK\\b|\\bMETER ROSAKSEMAKA TELAH\\b|\\bDIKHUATIRI METER ROSAK\\b|\\bNURUL METER ROSAK\\b|\\bLOONG METER ROSAK\\b|\\bMETER ROSAKADA\\b|\\bMETER ROSAKBUAT TUKAR\\b|\\bSUSPECT METER ROSAKNO\\b|\\bTERDAPAT METER ROSAK\\b|\\bMETERR METER ROSAKM\\b|\\bMETER ROSAKBACAAN TIDAK\\b|\\bMETER ROSAKM INTERNAL\\b|\\bMETER ROSAKRUMAH\\b|\\bMETER ROSAKDAN CUST\\b|\\bTET CHOYKWHMETER ROSAK\\b|\\bPERLAHAN METER ROSAK\\b|\\bMETER ROSAK PEGGUNA\\b|\\bAMIRUDDINMETER ROSAK LAST\\b|\\bMENDAPATI METER ROSAKGANTI\\b|\\bFAULFINDER METER ROSAK\\b|\\bBBRQ METER ROSAK\\b|\\bSIVAM RMETER ROSAKM\\b|\\bSAIDRMMETER ROSAK\\b|\\bMR VISHALMETER ROSAK\\b|\\bMETER ROSAK NUMBER\\b|\\bMIZAMETER ROSAK CEPER\\b|\\bTERHENTIBIL METER ROSAK\\b|\\bROSAKMETER ROSAKTUKAR SERTA\\b|\\bMETER ROSAK MISS\\b|\\bJANGKA METER ROSAKPURATA\\b|\\bDITAPAKMETER ROSAK ERROR\\b|\\bSYAKI METER ROSAKBIL\\b|\\bMETER ROSAK BULA\\b|\\bMETER ROSAKERROR\\b|\\bDAN METER ROSAK\\b|\\bMETER ROSAK TERKENA\\b|\\bTERPASANGDISYAKI METER ROSAKMOHON\\b|\\bMETER ROSAK ATAUSEBAGAINYAADUAN\\b|\\bTERTULIS METER ROSAK\\b|\\bMOHDMETER ROSAKTIADA\\b|\\bMETER ROSAK ASSIGN\\b|\\bMETER ROSAKLAJU INTERNAL"
+
+no_reading_billing_keywords <- "\\bTIADA BACAAN\\b|\\bBIL TAK TERIMA|\\bX DPT BI LL"
+
+meter_crossing_keywords <- "\\bSALAH PASANG\\b|\\bTERSALAH DIPASANG\\b|\\bJANGKA HILANG\\b|\\bMETER CROSSING\\b|\\bSILANG\\b|\\bCROSSING\\b|\\bCROSING\\b|\\bBERSILANG"
+
+work_in_progress_keywords <- "\\bPREMIS TUTUP\\b|\\bTAK JAWAB\\b|\\bTIDAK BERJAWAB\\b|\\bKIV\\b|\\bTIADA DIPREMIS\\b|\\bKUNCI\\b|\\bBERKUNCI\\b|\\bPREMIS KOSONG\\b|\\bDITUNDA|\\bPANGGILAN TIDAK DIJAWAB|GATE LOCK|TIADA PENGGUNA|TIDAK DAPAT DI HUBUNGI|\\bTIDAK DAPAT DIHUBUNGI|SALAH BUAT ADUAN|SALAH REPORT|SALAH BUAT REPORT"
+
+incorrect_reading_keywords <- "\\bSALAH\\b|\\bTIDAK TEPAT\\b|\\bBACAN SALAH\\b|\\bTIDAKTEPAT\\b|\\bWRONG KEY IN\\b|\\bTERSALAH AMBIL BACAAN\\b|\\bBACA AN SALAH\\b|\\bBACA SALAH\\b|\\bPEMBETULAN BACAAN\\b|\\bPEMBETULAN BA CAAN\\b|\\bBACAAN SALAH\\b|\\bRALAT BACAAN\\b|\\bBUAT BILL BARU\\b|\\bBACAAN SALA\\b|\\bKESILAPAN BACAAN\\b|\\b BACAAN\\b|\\bBETULKAN BACAAN\\b|\\bBACAAN SA LAH\\b|\\bBACAAN ADALAH SALAH\\b|\\bSALAH RDG\\b|\\bMETESALAHREDER SALAH\\b|\\bOVEREADING\\b|\\bSALAH MEMBUAT BACAAN\\b|\\bOVERREAD\\b|\\bBACAAN SUDAH DIBETULKAN\\b|\\bTERSALAH MENGAMBIL BACAAN\\b|\\bDIBETULKAN DENGAN BACAAN SEBENAR\\b|\\bBACCAN SUDAH DIBETULKAN\\b|\\bSALAH MMBUAT BACAAN\\b|\\bWRONG READING\\b|\\bBACAAN KVARH SALAH\\b|\\bBILL TELAH DIBETULKAN MENGIKUT BACAAN\\b|\\bOVER READ\\b|\\bADALAH SALAH\\b|\\bSALAH READING\\b|\\bRDG OVERRE AD\\b|\\bPEMBACA JANGKA TERSALAH\\b|\\bBACAAN METER SALAH\\b|\\bMR TERKURANG BACA\\b|\\bBACAAN MR BULAN 3 RENDAH\\b|\\bOVEREAD READING\\b|\\bTERSALAH BUAT BACAAN\\b|\\bKESALAHAN BACAAN\\b|\\bBACAAN UNDER READ\\b|\\bSALAH TECO READING\\b|\\bBIL TERSILAP BACA\\b|\\bBACAAN ADALAH KOSONG\\b|\\bBACAAN APRIL RENDAH\\b|\\bBACAAN DIBACA RENDAH\\b|\\bTERSALAH BACA\\b|\\bSALAH BACCAN\\b|\\bSILAP BACA\\b|\\bTERSALAH MASUKKAN BACAAN\\b|\\bBACAAN DAHULU SALAH\\b|\\bPEMBACA JANGKA BACA SALAH\\b|\\bYG TIDAK TEPAT\\b|\\bTIDAK TEPATPENGUNA\\b|\\bADALAH TIDAK TEPATPENGUNA\\b|\\bTIDAKTEPATPENGGUNA MEM\\b|\\bTIDAK TEPATMOHON\\b|\\bADALAH TIDAKTEPATPENGGUNA\\b|\\bTIDAK TEPAT PENJELASAN\\b|\\bTIDAK TEPATPENGGUNA\\b|\\bTIDAK TEPATPEMB ETULAN\\b|\\bBACAAN TIDAK BOLEHDIBETULKAN\\b|\\bBACAAN PEMBETULAN TIDAK\\b|\\bBACAAN BETULTIDAK\\b|\\bTIDAK BERAPA BETULPERGERAKAN\\b|\\bBACAAN BETULTIDAK DAPAT\\b|\\bUNDER READ"
+
+missing_meter_keywords  <- "METER HILANG"
+
+high_bill_keywords <- "\\b2 KALI GANDA\\b|\\bKALI GANDA\\b|\\bGANDA\\b|"
+
+long_billing_period_keywords <- "\\bPRORATE\\b|\\bMELEBINI 30 HARI\\b|\\bLAMBAT\\b|\\bLAMBAT BACA\\b|\\b32 HARI\\b|\\b33 HARI\\b|\\b34 HARI\\b|\\b35 HARI\\b|\\b36 HARI\\b|\\bLEBIH 30 HARI\\b|\\b62 HARI\\b|\\bBIL DIBACA LAMBAT\\b|\\bPRORATA"
+
+meter_healthy_keywords <- "\\bOKRALAT\\b|\\bAIKRALAT\\b|\\bKEADAAN BAIK\\b|\\bJANGKA BAIK\\b|\\bBAIK\\b|\\bMETER OK\\b|\\bGOOD CONDITION\\b|\\bNORMALRALAT\\b|\\bTIDAK ROSAK\\b|\\bJANGKA OK\\b|\\bMTR OK\\b|\\bDISAHKAN TIADA MASAALAH\\b|\\bDALAM RALAT YANG DIBENARKAN\\b|\\bTIADA KEJANGGALAN METER\\b|\\bRALAT % ERROR TIDAK MELEBIHI JULAT\\b|\\bBAIKERROR\\b|\\bKEJITUAN\\b|\\bMETER DIUJI BAIK\\b|\\bCHECK METER NORMAL"
+
+smart_meter_keywords <- "\\bSMARTMETER\\b|\\bSMART\\b|\\bSMART METER\\b|\\bBILIK GERAKAN SM\\b|\\bUNIT SM\\b|\\bSM\\b|\\bMENGGUNAKANSMART METER\\b|\\bSMOC\\b|\\bSELEPAS TUKAR SMART METER"
+
+system_error_keywords <- "\\bDEVICE ALLOCATION\\b"
+
+
+estimate_bill_keywords <- "\\bBCAAN ANGARAN\\b|\\bBIL ANG GARAN\\b|\\bBACAAN EST\\b|\\bBILL N\\b|\\bBACAAN AGGARAN\\b|\\bBACAAN SEBENAR\\b|\\bE BILL\\b|\\bBIL E\\b|\\bBIL ANGGARAN\\b|\\bANGGARAN\\b|\\bBACAAN ESTIMATE\\b|\\bESTIMATE\\b|\\bSYSTEM EST RENDAH\\b|\\bBIL ANGGA RAN\\b|\\bBIL ELEKTRIK ESTI MATE\\b|\\bBIL ELEKTRIK ESTIMA TE"
+#\\bBILL ANGGARAN BULAN\\b|
+
+new_service_keywords <- "\\bNEW SERVICE|\\bSEMAKAN WIRING DALAMAN|\\bHAS BEEN TRANSFERRED"
+
+meter_tampering_keywords <- "\\bSEAL TEAM|USIK"
+
+so_refer <- "\\bSO\\b|\\bREFER SO|\\bRUJUK SO|\\bSERVICE ORDER"
+
+```
+
+## Complaints and SN Remark - 2 Jun baseline
+
+Here, the initial analysis is done based on the 2nd June baseline file for SR and Complaints, to match the 18964 initial number, with the corresponding data frame containing both BCRM inspection data (as of 14 Jun 2019) and SN Remark, currently using version 3 (as of 14 June 2019) as established earlier during the joining of the data. The approach is simple - if any of the keywords listed above is found in the text content, the flag becomes 1, else 0.
+
+### Complaints - Root Cause Analysis
+
+Here, we start with Root Cause Analysis, since here the root cause is well established
+
+```{r}
+complaints_rca_mart_23Jun2019_wflag <-
+  data_complaints_June2019_filtered_23Jun2019_bcrmInspection_SNRemarks %>%
+  # The mutation below converts the root cause to BCRM identified incorrect reading if bcrm_inspection == 1, else converts
+  # the text to upper case, to match the keywords above
+  mutate(Root_Cause_Analysis = ifelse(!is.na(bcrm_inspection),"BCRM INVESTIGATION OVER-READING", 
+                                      toupper(Root_Cause_Analysis))) %>% 
+  mutate(
+    meter_quality_rca_flag = ifelse(Root_Cause_Analysis %in% meter_rca_keywords, 1, 0),
+    meter_crossing_rca_flag = ifelse(Root_Cause_Analysis %in% crossing_rca_keywords, 1, 0),
+    customer_behaviour_rca_flag = ifelse(Root_Cause_Analysis %in% customer_rca_keywords, 1, 0),
+    incorrect_read_rca_flag = ifelse(Root_Cause_Analysis %in% incorrect_read_rca_keywords, 1, 0),
+    estimate_bill_rca_flag = ifelse(Root_Cause_Analysis %in% estimate_bill_rca_keywords, 1, 0),
+    no_bill_no_reading_rca_flag = ifelse(Root_Cause_Analysis %in% no_bill_no_reading_rca_keywords, 1, 0),
+    system_data_issues_rca_flag = ifelse(Root_Cause_Analysis %in% system_data_issues_rca_keywords, 1, 0),
+    unclassified_rca_flag = ifelse(Root_Cause_Analysis %in% unclassified_rca_keywords, 1, 0),
+    bcrm_overread_rca_flag = ifelse(Root_Cause_Analysis == "BCRM INVESTIGATION OVER-READING", 1, 0),
+    long_billing_rca_flag = ifelse(Root_Cause_Analysis %in% long_billing_rca_keywords, 1, 0)
+  ) %>% as_tibble() %>% 
+  mutate(sum_rca_flag = rowSums(select(., ends_with("rca_flag")))) # Here, adding a logic to calculate the sum of the flags
+```
+
+```{r}
+complaints_rca_mart_23Jun2019_wflag %>% filter(sum_rca_flag == 0) %>% 
+  filter(Root_Cause_Analysis != "NOT ASSIGNED") %>% 
+  group_by(Root_Cause_Analysis) %>% 
+  summarize(count = n()) %>% arrange(-count)
+```
+
+### Complaints - SN Remark
+
+After the root cause analysis is done, the subsequent addition of SN remark analysis is applied, to account for cases whereby the root cause is not clearly established.
+
+```{r}
+complaints_snremark_mart_23Jun2019_wflag_rca <-
+  complaints_rca_mart_23Jun2019_wflag %>% 
+  mutate(clean_sn_remark = trimws(clean_sn_remark)) %>% 
+  mutate(customer_consumption_sn_flag = if_else(str_detect(clean_sn_remark, 
+                                                           customer_consumption_keywords), 1, 0),
+         meter_quality_sn_flag = if_else(str_detect(clean_sn_remark, 
+                                                    meter_quality_keywords), 1, 0),
+         meter_crossing_sn_flag = if_else(str_detect(clean_sn_remark, 
+                                                     meter_crossing_keywords), 1, 0),
+         high_bill_sn_flag = if_else(str_detect(clean_sn_remark, 
+                                                high_bill_keywords), 1, 0),
+         long_billing_period_sn_flag = if_else(str_detect(clean_sn_remark, 
+                                                          long_billing_period_keywords), 1, 0),
+         #not_classified_sn_flag = if_else(str_detect(clean_sn_remark, 
+         #                                            not_classified_keywords), 1, 0),
+         meter_healthy_no_charge_sn_flag =if_else(str_detect(clean_sn_remark,
+                                                             meter_healthy_keywords), 1, 0),
+         incorrect_reading_sn_flag =  if_else(str_detect(clean_sn_remark, incorrect_reading_keywords), 1, 0),
+         #no_reading_sn_flag = if_else(str_detect(clean_sn_remark, 
+         #                                        no_reading_billing_keywords), 1, 0),
+         smart_meter_sn_flag = if_else(str_detect(clean_sn_remark, 
+                                                  smart_meter_keywords), 1, 0),
+         system_error_sn_flag = if_else(str_detect(clean_sn_remark, 
+                                                   system_error_keywords), 1, 0),
+         estimate_bill_sn_flag = if_else(str_detect(clean_sn_remark, 
+                                                    estimate_bill_keywords), 1, 0),
+         new_service_sn_flag = if_else(str_detect(clean_sn_remark, 
+                                                  new_service_keywords), 1, 0),
+         #meter_tampering_sn_flag = if_else(str_detect(clean_sn_remark, 
+         #                                        meter_tampering_keywords), 1, 0),
+         #so_refer_sn_flag = if_else(str_detect(clean_sn_remark, 
+         #                                      so_refer), 1, 0),
+        #missing_meter_sn_flag = if_else(str_detect(clean_sn_remark, 
+          #                                          missing_meter_keywords), 1, 0)
+  ) %>% as_tibble() %>% 
+  mutate(sum_sn_flag = rowSums(select(., ends_with("_sn_flag")))) # Here, adding a logic to calculate the sum of the SN flags
+```
+
+### SN Remark Analysis
+
+For the service request, it is more direct - just straight to the SN remarks. This part will take longer to run, due to the amount of text.
+
+```{r}
+servicereq_SNremark_mart_23Jun2019_wflag <-
+  data_servicereq_June2019_filtered_23Jun2019_bcrmInspection_SNRemarks %>% 
+  mutate(clean_sn_remark = trimws(clean_sn_remark),
+         # Below, convert NA values to 0
+         bcrm_inspection = if_else(is.na(bcrm_inspection), 0, bcrm_inspection)) %>% 
+  mutate(customer_consumption_flag = if_else(str_detect(clean_sn_remark, 
+                                                        customer_consumption_keywords), 1, 0),
+         meter_quality_flag = if_else(str_detect(clean_sn_remark, 
+                                                 meter_quality_keywords), 1, 0),
+         meter_crossing_flag = if_else(str_detect(clean_sn_remark, 
+                                                 meter_crossing_keywords), 1, 0),
+        # high_bill_flag = if_else(str_detect(clean_sn_remark, 
+         #                                    high_bill_keywords), 1, 0),
+         long_billing_period_flag = if_else(str_detect(clean_sn_remark, 
+                                                       long_billing_period_keywords), 1, 0),
+         #not_classified_flag = if_else(str_detect(clean_sn_remark, 
+         #                                         not_classified_keywords), 1, 0),
+         # Here it checks based on the feedback status, for the first half of May cases
+         meter_healthy_flag = if_else(Feedback_Status == "Completed with Charges", 1, 0),
+         # Here it checks if the above condition is not matched, then only search for keywords
+         #meter_healthy_no_charge_flag = if_else(Feedback_Status != "Completed with Charges",
+         #                                       if_else(str_detect(clean_sn_remark, 
+          #                                                         meter_healthy_keywords), 1, 0), 0),
+         # Here, dominance is given to BCRM inspection, else then only check the keywords
+         incorrect_reading_flag = if_else(bcrm_inspection == 1, 
+                                          1, if_else(is.na(bcrm_inspection), 
+                                                     if_else(str_detect(clean_sn_remark, incorrect_reading_keywords), 1, 0), 0)),
+         #no_reading_flag = if_else(str_detect(clean_sn_remark, 
+         #                                     no_reading_billing_keywords), 1, 0),
+         smart_meter_flag = if_else(str_detect(clean_sn_remark, 
+                                               smart_meter_keywords), 1, 0),
+         #system_error_flag = if_else(str_detect(clean_sn_remark, 
+         #                                       system_error_keywords), 1, 0),
+         estimate_bill_flag = if_else(str_detect(clean_sn_remark, 
+                                                 estimate_bill_keywords), 1, 0),
+         #new_service_flag = if_else(str_detect(clean_sn_remark, 
+           #                                    new_service_keywords), 1, 0),
+         #meter_tampering_flag = if_else(str_detect(clean_sn_remark, 
+         #                                        meter_tampering_keywords), 1, 0),
+         #so_refer_flag = if_else(str_detect(clean_sn_remark, 
+          #                                  so_refer), 1, 0),
+         #missing_meter_flag = if_else(str_detect(clean_sn_remark, 
+          #                                       missing_meter_keywords), 1, 0)
+  ) %>% as_tibble() %>% 
+  mutate(sum_flag = rowSums(select(., ends_with("_flag")))) # Here, adding a logic to calculate the sum of the SN flags
+```
+
+#### Review outcome of Service Request analysis
+
+##### Overall numbers
+
+The below as a quick review, of the total flags uniquely identified, along with their categories
+
+```{r}
+servicereq_SNremark_mart_23Jun2019_wflag %>% 
+  #mutate(sum_flag = rowSums(select(., ends_with("_flag")))) %>% 
+  filter(sum_flag == 1) %>% 
+  summarize(
+    sum_flag_total = sum(sum_flag),
+    sum_customer_consumption_flag = sum(customer_consumption_flag),
+    sum_meter_quality_flag = sum(meter_quality_flag),
+    sum_meter_crossing_flag = sum(meter_crossing_flag),
+    #sum_high_bill_flag = sum(high_bill_flag),
+    sum_long_billing_period_flag = sum(long_billing_period_flag),
+    #sum_not_classified_flag = sum(not_classified_flag),
+    #sum_meter_healthy_no_charge_flag = sum(meter_healthy_no_charge_flag),
+    sum_incorrect_reading_flag = sum(incorrect_reading_flag),
+    #sum_no_reading_flag = sum(no_reading_flag),
+    sum_smart_meter_flag = sum(smart_meter_flag),
+    #sum_system_error_flag = sum(system_error_flag),
+    sum_estimate_bill_flag = sum(estimate_bill_flag),
+    #sum_new_service_flag = sum(new_service_flag),
+    #sum_meter_tampering_flag = sum(meter_tampering_flag),
+    #sum_so_refer_flag = sum(so_refer_flag)
+  ) %>% t() %>% as.data.frame() #%>% 
+#write.xlsx(., "SN_REMARK_COUNT_BUCKET_8JUN2019.xlsx", row.names = T, col.names = T)
+```
+
+##### Analysis of the keywords, by eyeballing
+
+Here, coding is established for service request - can copy the below to do the same for complaints
+
+```{r}
+servicereq_SNremark_mart_23Jun2019_wflag %>% 
+  filter(sum_flag == 0) %>% 
+  filter(!length(trimws(clean_sn_remark)) == 0) %>% 
+  select(CA_Number, clean_sn_remark, Category, SubCategory) #%>% 
+#filter(Category != "OPC Accuracy Test") #%>% 
+#filter(str_detect(clean_sn_remark, "CHANGE"))
+#unnest_tokens(word, clean_sn_remark, ) %>% 
+#group_by(Category, SubCategory, Feedback_Status) %>% 
+#unnest_tokens(word, clean_sn_remark, token = "ngrams", n = 4) %>% 
+#count(word, sort = T) %>%
+#filter(!str_detect(word, "nbsp|hubung")) %>% 
+#filter(!word %in% c("dan","di","pada","5","2019")) %>% 
+#filter(!str_detect(word, "tinggi|bil|pengguna|dan|problem|2019|31|akan|puas"))
+```
+
+##### Analysis using tokenizing
+
+Here, coding is established for service request - can copy the below to do the same for complaints
+
+```{r}
+servicereq_SNremark_mart_23Jun2019_wflag %>% 
+  filter(sum_flag == 0) %>% 
+  filter(!length(trimws(clean_sn_remark)) == 0) %>% 
+  #filter(Category != "OPC Accuracy Test") #%>% 
+  #filter(str_detect(clean_sn_remark, "CHANGE"))
+  group_by(Category, SubCategory, Feedback_Status) %>% 
+  unnest_tokens(word, clean_sn_remark, token = "ngrams", n = 4) %>% 
+  count(word, sort = T) %>%
+  filter(!str_detect(word, "nbsp|hubung")) %>% 
+  filter(!word %in% c("dan","di","pada","5","2019")) %>% 
+  filter(!str_detect(word, "tinggi|bil|pengguna|dan|problem|2019|31|akan|puas"))
+```
+
+# OUTPUT FILES FOR JAMES AND TANVEER
+
+Based on the extracts and analysis done above (and any variable changes), the output files are produced below.
+#write.csv(servicereq_SNremark_mart_23Jun2019_wflag, file = #"UPDATED_WITH23JUNSTATUS_INFO_SERVICEREQ_SNREMARK_ANALYSIS_24JUNE2019_run30June.csv")
+
+#write.csv(complaints_snremark_mart_23Jun2019_wflag_rca, file = #"UPDATED_WITH23JUNSTATUS_INFO_COMPLAINTS_RCA_SNREMARK_ANALYSIS_24JUNE2019.csv")
+
+```{r}
+servicereq_SNremark_mart_23Jun2019_wflag %>% 
+  write.xlsx(., "UPDATED_WITH30JUNSTATUS_INFO_SERVICEREQ_SNREMARK_ANALYSIS_30JUNE2019_run1July.xlsx")
+```
+
+```{r}
+complaints_snremark_mart_23Jun2019_wflag_rca %>% 
+  write.xlsx(., "UPDATED_WITH23JUNSTATUS_INFO_COMPLAINTS_RCA_SNREMARK_ANALYSIS_24JUNE2019.xlsx")
+```
+
+### Feedback 13 Jun Status Changes and 14 Jun Status Changes
+
+HERE ON IS MANUAL
+
+Here, we are incorporating information from the later versions of the file, based on the original listing from 2 Jun 2019. Hence, in establishing the code, the joins are doing based on Service Request/Complaint ID, and then modifies the variables into the appropriate names to give context, and also gives the Status Change.
+
+#### Service Request Modification
+
+For Service Request, since we have done the keyword analysis earlier, the only change needed is to add the Feedback_Status (and related info) to the original data frame with the analysis output
+
+```{r}
+servicereq_SNremark_mart_2Jun2019_wflag_13junfeedback_14junfeedback <-
+  servicereq_SNremark_mart_2Jun2019_wflag %>% 
+  left_join(., data_servicereq_may2019_13Jun2019 %>% 
+              select(Service_Request_ID, Feedback_Status, Last_Changed_Date) %>% 
+              transmute(Service_Request_ID = Service_Request_ID, 
+                        Feedback_13_Jun = Feedback_Status,
+                        Last_Changed_Date_13_Jun = Last_Changed_Date),
+            by = "Service_Request_ID") %>% 
+  left_join(., data_servicereq_may2019_14Jun2019 %>% 
+              select(Service_Request_ID, Feedback_Status, Last_Changed_Date) %>% 
+              transmute(Service_Request_ID = Service_Request_ID, 
+                        Feedback_14_Jun = Feedback_Status,
+                        Last_Changed_Date_14_Jun = Last_Changed_Date),
+            by = "Service_Request_ID") %>% 
+  mutate(
+    Status_Change_13_Jun = if_else(Feedback_Status != Feedback_13_Jun, 1, 0),
+    Status_Change_14_Jun = if_else(Feedback_Status != Feedback_14_Jun, 1, 0)) %>% 
+  select(S_No:Feedback_Status, Feedback_13_Jun, Status_Change_13_Jun, Last_Changed_Date_13_Jun, bcrm_inspection, Notes,
+         SN_Remark:sum_flag, Feedback_14_Jun, Status_Change_14_Jun, Last_Changed_Date_14_Jun ) 
+#Add the new variables to the select statement if new files are joined
+```
+
+#### Complaint Request Modification
+
+Here, extra care needs to the file, to ensure consistency of the output file, for James and Tanveer's use.
+
+```{r}
+complaints_snremark_mart_2Jun2019_wflag_rca_13junfeedback_14junfeedback <-
+complaints_snremark_mart_2Jun2019_wflag_rca %>% 
+left_join(., data_complaints_may2019_13Jun2019 %>% 
+select(Complaint_ID, Feedback_Status, Last_Changed_Date, Root_Cause_Analysis) %>%                                                         transmute(Complaint_ID = Complaint_ID,                                                                                                              Feedback_13_Jun = Feedback_Status,                                                                                                        Last_Changed_Date_13_Jun = Last_Changed_Date,                                                                                             Root_Cause_Analysis_13_Jun = Root_Cause_Analysis),
+by = "Complaint_ID") %>% 
+left_join(., data_complaints_may2019_14Jun2019 %>% 
+select(Complaint_ID, Feedback_Status, Last_Changed_Date, Root_Cause_Analysis) %>%                                                         transmute(Complaint_ID = Complaint_ID,                                                                                                              Feedback_14_Jun = Feedback_Status,                                                                                                        Last_Changed_Date_14_Jun = Last_Changed_Date,                                                                                             Root_Cause_Analysis_14_Jun = Root_Cause_Analysis), 
+by = "Complaint_ID") %>% 
+mutate(
+Status_Change_13_Jun = if_else(Feedback_Status != Feedback_13_Jun, 1, 0),
+Status_Change_14_Jun = if_else(Feedback_Status != Feedback_14_Jun, 1, 0)) %>% 
+select(S_No:Feedback_Status, Feedback_13_Jun, Status_Change_13_Jun, Last_Changed_Date_13_Jun, 
+bcrm_inspection, Notes, Root_Cause_Analysis, Root_Cause_Analysis_13_Jun,`SN_Remark`:sum_sn_flag,
+Feedback_14_Jun, Status_Change_14_Jun, Last_Changed_Date_14_Jun, Root_Cause_Analysis_14_Jun) %>% 
+# Here to rerun the root cause analysis, please change the source of the Root Cause to the new date
+mutate(Root_Cause_Analysis_14_Jun = ifelse(!is.na(bcrm_inspection),"BCRM INVESTIGATION OVER-READING", 
+toupper(Root_Cause_Analysis_14_Jun))) %>% 
+mutate(
+meter_quality_new_rca_flag = ifelse(Root_Cause_Analysis_14_Jun %in% meter_rca_keywords, 1, 0),
+meter_crossing_new_rca_flag = ifelse(Root_Cause_Analysis_14_Jun %in% crossing_rca_keywords, 1, 0),
+customer_behaviour_new_rca_flag = ifelse(Root_Cause_Analysis_14_Jun %in% customer_rca_keywords, 1, 0),
+incorrect_read_new_rca_flag = ifelse(Root_Cause_Analysis_14_Jun %in% incorrect_read_rca_keywords, 1, 0),
+estimate_bill_new_rca_flag = ifelse(Root_Cause_Analysis_14_Jun %in% estimate_bill_rca_keywords, 1, 0),
+no_bill_no_reading_new_rca_flag = ifelse(Root_Cause_Analysis_14_Jun %in% no_bill_no_reading_rca_keywords, 1, 0),
+system_data_issues_new_rca_flag = ifelse(Root_Cause_Analysis_14_Jun %in% system_data_issues_rca_keywords, 1, 0),
+unclassified_new_rca_flag = ifelse(Root_Cause_Analysis_14_Jun %in% unclassified_rca_keywords, 1, 0),
+bcrm_overread_new_rca_flag = ifelse(Root_Cause_Analysis_14_Jun == "BCRM INVESTIGATION OVER-READING", 1, 0),
+long_billing_new_rca_flag = ifelse(Root_Cause_Analysis_14_Jun %in% long_billing_rca_keywords, 1, 0)
+) %>% as_tibble() %>% 
+mutate(sum_new_rca_flag = rowSums(select(., ends_with("new_rca_flag")))) %>% 
+select(S_No:Feedback_Status, Feedback_13_Jun, Status_Change_13_Jun, Last_Changed_Date_13_Jun, 
+bcrm_inspection, Notes, Root_Cause_Analysis, Root_Cause_Analysis_13_Jun,`SN_Remark`:sum_sn_flag,
+meter_quality_new_rca_flag:sum_new_rca_flag, Feedback_14_Jun:Root_Cause_Analysis_14_Jun)
+```
+
+##### Checking for any new root cause words in the Complaints
+
+```{r}
+complaints_snremark_mart_2Jun2019_wflag_rca_13junfeedback_14junfeedback %>% 
+filter(Feedback_14_Jun == "Verified") %>% 
+filter(sum_new_rca_flag == 0) %>% 
+group_by(Root_Cause_Analysis_14_Jun) %>% 
+summarize(count = n())
+```
+
+
+
+# OUTPUT FILES FOR JAMES AND TANVEER
+
+Based on the extracts and analysis done above (and any variable changes), the output files are produced below.
+
+```{r}
+complaints_snremark_mart_2Jun2019_wflag_rca_13junfeedback_14junfeedback %>% 
+write.xlsx(., "UPDATED_WITH14JUNSTATUS_INFO_COMPLAINTS_RCA_SNREMARK_ANALYSIS.xlsx")
+```
+
+```{r}
+servicereq_SNremark_mart_2Jun2019_wflag_13junfeedback_14junfeedback %>% 
+write.xlsx(., "UPDATED_WITH14JUNSTATUS_INFO_SERVICEREQUEST_SNREMARK_ANALYSIS.xlsx")
+```
+
+

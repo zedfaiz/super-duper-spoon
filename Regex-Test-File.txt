@@ -1,0 +1,41 @@
+0123456789
+123456789
+3123456789
+
+abcdefghijklmnopqrstuvwxyz
+ABCDEFGHIJKLMNOPQRSTUVWXYZ
+
+Dr.Robert
+Dr.Raj
+DrRaj
+Mr.Ramesh
+Ms.Priyas
+
+cab , bed , debt
+<h2>Test</h2>
+
+He said "
+Hello Hello HelloHello"
+
+List of MetaCharacters: (Regex won't match these without escape character '\')
+.[{(|\$?*+
+
+List of Phonenumbers
+  084--378----9426
+  090-308-7642
+  152 634 6424
+  
+ 987656543389
+
+List of Test Ip addresses :
+    10.20.189.1
+    120.220.89.21
+    210.0.0.3
+
+List of Dates:
+20-June-2018
+4-July-1978
+
+Websites:
+www.google.co.in
+www.facebook.com

@@ -1,0 +1,45 @@
+.   => matches any characters other than new line
+\d  => matches any digit
+\D  => matches any non-digit
+\w  => matches any word character (a-z, A-Z, 0-9, _)
+\W  => matches any non-word character
+\s  => matches any white space character
+\S  => matches any non-white space character
+
+Anchors:
+========
+\b  => word boundary
+\B  => not a word boundary
+^   => beginning of string
+$   => End of string
+
+Quantifiers:
+============
+?   => 1 or 0 eg: -? (1 hypen or zero hypen)
++   => 1 or more eg: -+ (1 hypen to infinite hypens)
+*   => 0 or more eg: -* (o hyphen to infinite hypens)
+{3} => exact match of 3 repetitions
+
+Bracket
+========
+[]  => Matches characters in brackets
+[^ ]=> Matches characters not in brackets
+
+Or Operator
+============
+|   => Either this or that
+
+Grouping
+========
+()  => group or capturing regex
+
+Lookaround Regexes
+==================
+a(?=b) => Positive Look ahead regex (a ahead of b)
+a(?!b) => Negative Look ahead regex (a not ahead of b)
+(?=b)a => Positive Look behind regex (a behind b)
+(?<!b)a => Negative Look behind regex (a not behind b)
+
+Back Referencing:
+=================
+<(\w+)>.*?</\1> => using the captured groups in regex pattern
